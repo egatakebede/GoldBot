@@ -1,0 +1,12 @@
+xgboost==2.0.3
+scikit-learn
+pandas
+numpy
+optuna
+joblib
+flask
+requests
+beautifulsoup4
+python-telegram-bot==20.7
+schedule
+python-dotenv

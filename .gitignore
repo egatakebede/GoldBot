@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+venv/
+.venv/
+
+# Model files (large)
+models/*.json
+models/*.ubj
+models/*.pkl
+
+# Data (large + sensitive)
+data/*.csv
+data/kaggle/
+logs/
+data/risk_state.json
+
+# Secrets
+config.py
+.env
+
+# OS
+.DS_Store
+*.swp
