@@ -11,9 +11,10 @@ input double InpMaxDrawdown    = 0.15;
 input int    InpMaxConsecLoss  = 4;
 input double InpMaxLots        = 2.0;
 input int    InpMagicNumber    = 202506;
-input double InpMinConfidence  = 0.62;   // synced with config.py
+input double InpMinConfidence  = 0.62;
 input int    InpDataBars       = 500;
-input int    InpSignalStaleMin = 15;     // ignore signal older than N minutes
+input int    InpSignalStaleMin = 15;
+input int    InpMaxPositions   = 3;      // max simultaneous positions
 
 CTrade        Trade;
 CPositionInfo PosInfo;
@@ -157,8 +158,8 @@ void OnTick()
    g_Balance = AccountInfoDouble(ACCOUNT_BALANCE);
    ExportDataToCSV();
 
-   if(!RiskOK())             { Comment("Risk limit hit"); return; }
-   if(CountMyPositions() > 0){ Comment("Managing open trade"); return; }
+   if(!RiskOK())                              { Comment("Risk limit hit"); return; }
+   if(CountMyPositions() >= InpMaxPositions)  { Comment("Max positions reached"); return; }
 
    double   confidence, entry_price, sl, tp;
    datetime sig_time;
@@ -205,12 +206,21 @@ void OnTradeTransaction(const MqlTradeTransaction &trans,
                         const MqlTradeRequest     &req,
                         const MqlTradeResult      &res)
 {
+   // Only count when a position is closed (DEAL_OUT or DEAL_INOUT)
    if(trans.type == TRADE_TRANSACTION_DEAL_ADD)
    {
-      double newBal = AccountInfoDouble(ACCOUNT_BALANCE);
-      double pnl    = newBal - g_Balance;
-      g_Balance     = newBal;
-      g_DailyPnL   += pnl;
-      g_ConsecLoss  = (pnl > 0) ? 0 : g_ConsecLoss + 1;
+      ulong deal_ticket = trans.deal;
+      if(HistoryDealSelect(deal_ticket))
+      {
+         ENUM_DEAL_ENTRY entry_type = (ENUM_DEAL_ENTRY)HistoryDealGetInteger(deal_ticket, DEAL_ENTRY);
+         if(entry_type == DEAL_ENTRY_OUT || entry_type == DEAL_ENTRY_INOUT)
+         {
+            double newBal = AccountInfoDouble(ACCOUNT_BALANCE);
+            double pnl    = newBal - g_Balance;
+            g_Balance     = newBal;
+            g_DailyPnL   += pnl;
+            g_ConsecLoss  = (pnl > 0) ? 0 : g_ConsecLoss + 1;
+         }
+      }
    }
 }

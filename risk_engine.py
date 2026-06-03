@@ -63,35 +63,31 @@ class RiskEngine:
         return True, "OK"
 
     def lot_size(self, entry: float, stop_loss: float,
-                 confidence: float = 1.0, with_trend: bool = True) -> float:
+                 confidence: float = 1.0, with_trend: bool = True,
+                 open_positions: int = 0) -> float:
         pip_risk = abs(entry - stop_loss)
         if pip_risk <= 0:
             return 0.0
 
-        # Losing streak — scale down aggressively
         if self.consec_loss > 0:
             streak_scale = max(0.25, 1.0 - self.consec_loss * 0.15)
         else:
             wins_in_row  = self._current_win_streak()
             streak_scale = min(1.5, 1.0 + wins_in_row * 0.10)
 
-        # Counter-trend penalty
         trend_scale = 1.0 if with_trend else 0.5
-
-        # Equity curve weakness — reduce to 50%
         curve_scale = 0.5 if self._equity_curve_weak else 1.0
+        # Scale down for each additional open position — avoid overexposure
+        pos_scale   = 1.0 / (1 + open_positions * 0.5)
 
         scaled_risk = (config.RISK_PCT
                        * confidence
                        * streak_scale
                        * trend_scale
-                       * curve_scale)
+                       * curve_scale
+                       * pos_scale)
 
         risk_amount = self.balance * scaled_risk
-
-        # XAUUSD: 1 standard lot = 100oz
-        # pip_risk in price units (e.g. $2.00)
-        # risk_amount / (pip_risk * 100) = lots
         lots = risk_amount / (pip_risk * 100.0)
         lots = min(lots, config.MAX_LOTS)
         lots = max(0.01, round(lots, 2))

@@ -2,7 +2,9 @@ import pandas as pd
 import numpy as np
 from indicators import (ema, rsi, atr, macd, bollinger_bands,
                         stochastic, roc, vwap_session,
-                        add_session, add_news_filter, detect_regime)
+                        add_session, add_news_filter, detect_regime,
+                        swing_points, bos_choch, fair_value_gaps,
+                        order_blocks, liquidity_sweep)
 
 def build_features(df, blackout_events=None):
     d = df.copy()
@@ -114,13 +116,37 @@ def build_features(df, blackout_events=None):
     d["regime_lowvol"]   = (d["regime"] == "LOW_VOL").astype(int)
     d["adx_val"]         = d["adx"]  # numeric ADX value
 
+    # ── SMC Features ─────────────────────────────────────────────────────
+    d["bos_bull"], d["bos_bear"], d["choch_bull"], d["choch_bear"] = bos_choch(c, h, l)
+
+    d["fvg_bull"], d["fvg_bear"], d["dist_fvg_bull"], d["dist_fvg_bear"] = fair_value_gaps(h, l, c)
+
+    atr14_series = d["atr14"]
+    d["ob_bull"], d["ob_bear"], d["ob_bull_dist"], d["ob_bear_dist"] = order_blocks(h, l, c, d["open"], atr14_series)
+
+    d["liq_bull"], d["liq_bear"] = liquidity_sweep(h, l, c)
+
+    # Swing structure
+    d["swing_high"], d["swing_low"] = swing_points(h, l)
+    # Distance to nearest swing high/low in ATR units
+    last_sh = h.where(d["swing_high"] == 1).ffill()
+    last_sl = l.where(d["swing_low"]  == 1).ffill()
+    d["dist_swing_high"] = (last_sh - c) / atr14_series
+    d["dist_swing_low"]  = (c - last_sl)  / atr14_series
+    # Combined SMC bias score: +1 per bull signal, -1 per bear signal
+    d["smc_bias"] = (d["bos_bull"] + d["choch_bull"] + d["fvg_bull"] + d["ob_bull"] + d["liq_bull"]
+                   - d["bos_bear"] - d["choch_bear"] - d["fvg_bear"] - d["ob_bear"] - d["liq_bear"])
+
     return d.dropna()
 
 
 HTF_COLS = ["trend_8_21", "trend_21_50", "trend_50_200", "ema21_slope",
             "rsi14", "rsi_slope", "macd_hist", "macd_hist_slope",
             "bb_position", "bb_squeeze", "atr14", "atr_trend",
-            "rel_volume", "adx_val", "regime_trending", "regime_ranging"]
+            "rel_volume", "adx_val", "regime_trending", "regime_ranging",
+            "bos_bull", "bos_bear", "choch_bull", "choch_bear",
+            "fvg_bull", "fvg_bear", "ob_bull", "ob_bear",
+            "liq_bull", "liq_bear", "smc_bias"]
 
 def add_htf_context(df_ltf, df_htf, prefix):
     available   = [c for c in HTF_COLS if c in df_htf.columns]

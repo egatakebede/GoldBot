@@ -20,9 +20,9 @@ N_TRIALS      = 50
 N_SPLITS      = 3
 
 LABEL_FORWARD  = 20
-LABEL_TP_MULT  = 1.0
-LABEL_SL_MULT  = 0.8
-CONF_THRESHOLD = 0.52
+LABEL_TP_MULT  = 2.0
+LABEL_SL_MULT  = 1.5
+CONF_THRESHOLD = 0.55
 
 FEATURE_COLS = [
     "trend_8_21","trend_21_50","trend_50_200",
@@ -46,6 +46,13 @@ FEATURE_COLS = [
     "hour_sin","hour_cos","dow_sin","dow_cos",
     "atr_above_avg",
     "regime_trending","regime_ranging","regime_highvol","regime_lowvol","adx_val",
+    # SMC
+    "bos_bull","bos_bear","choch_bull","choch_bear",
+    "fvg_bull","fvg_bear","dist_fvg_bull","dist_fvg_bear",
+    "ob_bull","ob_bear","ob_bull_dist","ob_bear_dist",
+    "liq_bull","liq_bear",
+    "swing_high","swing_low","dist_swing_high","dist_swing_low",
+    "smc_bias",
     "h1_trend_8_21","h1_trend_21_50","h1_trend_50_200","h1_ema21_slope",
     "h1_rsi14","h1_rsi_slope","h1_macd_hist","h1_macd_hist_slope",
     "h1_bb_position","h1_bb_squeeze","h1_atr14","h1_atr_trend",
@@ -268,14 +275,27 @@ def main():
     print("Speed improvement: tree_method=hist + N_SPLITS=3 should be 5-8x faster\n")
 
     optuna.logging.set_verbosity(optuna.logging.WARNING)
+    # CMA-ES sampler — better than TPE for continuous params (lr, subsample, gamma)
+    # Falls back to TPE for the first 10 warmup trials to seed the population
+    sampler = optuna.samplers.CmaEsSampler(
+        seed=42,
+        restart_strategy="ipop",   # auto-restarts if stuck in local optimum
+        warn_independent_sampling=False,
+    )
     study = optuna.create_study(
+        study_name="goldbot",
+        storage="sqlite:///models/optuna.db",
+        load_if_exists=True,
         direction="maximize",
-        sampler=optuna.samplers.TPESampler(seed=42),
+        sampler=sampler,
         pruner=optuna.pruners.MedianPruner(n_warmup_steps=8),
     )
+    completed = len([t for t in study.trials if t.state.name == "COMPLETE"])
+    remaining = max(0, N_TRIALS - completed)
+    print(f"Optuna: {completed} trials done, running {remaining} more...")
     study.optimize(
         lambda t: objective(t, X, y),
-        n_trials=N_TRIALS,
+        n_trials=remaining,
         show_progress_bar=True,
     )
 

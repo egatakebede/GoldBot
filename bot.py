@@ -78,7 +78,7 @@ class PaperPosition:
 class GoldBot:
     def __init__(self, initial_balance=10_000.0, paper=True):
         self.paper          = paper
-        self.position       = None
+        self.positions      = []          # list of open PaperPositions
         self.risk           = RiskEngine(initial_balance)
         self.model          = None
         self.feat_cols      = None
@@ -118,26 +118,24 @@ class GoldBot:
         tp_dist     = atr14 * config.TP_ATR_MULT
         sl          = (price - sl_dist) if direction == "BUY" else (price + sl_dist)
         tp          = (price + tp_dist) if direction == "BUY" else (price - tp_dist)
-        # Asymmetric sizing: counter-trend gets half size
         h1_bull     = self._last_h1_trend
         h4_bull     = self._last_h4_trend
         with_trend  = True
         if h1_bull != -1 and h4_bull != -1:
             with_trend = (signal == 2 and h1_bull == 1 and h4_bull == 1) or \
                          (signal == 0 and h1_bull == 0 and h4_bull == 0)
-        lots = self.risk.lot_size(price, sl, confidence, with_trend)
+        lots = self.risk.lot_size(price, sl, confidence, with_trend, len(self.positions))
         if lots <= 0:
             return
-        self.position = PaperPosition(direction, price, sl, tp, lots, confidence, regime)
-        print(f"[Bot] {direction} | Entry:{price:.2f} SL:{sl:.2f} TP:{tp:.2f} | "
+        pos = PaperPosition(direction, price, sl, tp, lots, confidence, regime)
+        self.positions.append(pos)
+        print(f"[Bot] {direction} #{len(self.positions)} | Entry:{price:.2f} SL:{sl:.2f} TP:{tp:.2f} | "
               f"Lots:{lots} Conf:{confidence:.2f} Regime:{regime} Trend:{'✓' if with_trend else '✗'}")
         notifier.trade_opened(direction, lots, price, sl, tp, confidence, regime)
 
-    def _close_trade(self, reason, exit_price, pnl):
-        pos = self.position
+    def _close_trade(self, pos, reason, exit_price, pnl):
         self.risk.update(pnl)
         pnl_pct = pnl / self.risk.balance * 100
-        # adaptive confidence: raise after loss, lower after win
         if pnl < 0:
             self._dyn_conf = min(self._dyn_conf + 0.02, 0.75)
         else:
@@ -145,7 +143,7 @@ class GoldBot:
         print(f"[Bot] CLOSED {pos.direction} | Exit:{exit_price:.2f} | PnL:${pnl:+.2f} | {reason} | MinConf:{self._dyn_conf:.2f}")
         notifier.trade_closed(pos.direction, pos.entry, exit_price, pnl, pnl_pct)
         self._log_trade(pos, exit_price, pnl, reason)
-        self.position = None
+        self.positions.remove(pos)
 
     def _log_trade(self, pos, exit_price, pnl, reason):
         import csv, os
@@ -167,22 +165,21 @@ class GoldBot:
             ])
 
     def tick(self):
-        now = datetime.now(timezone.utc)
+        now   = datetime.now(timezone.utc)
+        price = self.get_current_price()
 
-        if self.position:
-            price = self.get_current_price()
+        # Manage all open positions
+        for pos in list(self.positions):
             if self._last_atr > 0:
-                self.position.update_trail(price, self._last_atr)
-            # Partial close at 1R — move SL to breakeven, halve lots
-            if self.position.check_partial(price):
-                self.position.partial_done = True
-                self.position.lots         = round(self.position.lots / 2, 2)
-                self.position.trail_sl     = self.position.entry  # breakeven
-                print(f"[Bot] PARTIAL CLOSE at 1R | SL moved to breakeven | Lots now:{self.position.lots}")
-            should_exit, pnl, reason = self.position.check_exit(price)
+                pos.update_trail(price, self._last_atr)
+            if pos.check_partial(price):
+                pos.partial_done = True
+                pos.lots         = round(pos.lots / 2, 2)
+                pos.trail_sl     = pos.entry
+                print(f"[Bot] PARTIAL CLOSE | SL→BE | Lots now:{pos.lots}")
+            should_exit, pnl, reason = pos.check_exit(price)
             if should_exit:
-                self._close_trade(reason, price, pnl)
-                return
+                self._close_trade(pos, reason, price, pnl)
 
         can_trade, reason = self.risk.can_trade()
         if not can_trade:
@@ -201,7 +198,9 @@ class GoldBot:
                 notifier.news_blackout(nxt['title'], mins)
                 return
 
-        if self.position:
+        # Check max simultaneous positions + correlation
+        max_pos = getattr(config, 'MAX_POSITIONS', 3)
+        if len(self.positions) >= max_pos:
             return
 
         try:
@@ -216,22 +215,28 @@ class GoldBot:
             print(f"[Bot] Signal error: {e}")
             return
 
-        print(f"[Bot] {now.strftime('%H:%M')} | "
-              f"Signal:{['SELL','FLAT','BUY'][signal]} | "
-              f"Conf:{confidence:.2f} | Regime:{regime}")
-
         if signal == 1:
             return
         if confidence < self._dyn_conf:
             return
 
-        price = self.get_current_price()
+        # Correlation check — max 2 positions same direction
+        direction  = "BUY" if signal == 2 else "SELL"
+        same_dir   = sum(1 for p in self.positions if p.direction == direction)
+        if same_dir >= 2:
+            print(f"[Bot] Skipping {direction} — already {same_dir} open same direction")
+            return
+
+        print(f"[Bot] {now.strftime('%H:%M')} | "
+              f"Signal:{direction} | Conf:{confidence:.2f} | "
+              f"Regime:{regime} | Positions:{len(self.positions)}/{max_pos}")
+
         self._open_trade(signal, confidence, regime, atr14, price)
 
     def run(self):
         self.running = True
         print(f"[Bot] GoldBot Pro started | Paper={self.paper} | "
-              f"Balance:${self.risk.balance:.2f}")
+              f"Balance:${self.risk.balance:.2f} | MaxPositions:{getattr(config,'MAX_POSITIONS',3)}")
         notifier.send("GoldBot Pro started\n"
                       f"Mode: {'Paper' if self.paper else 'LIVE'}\n"
                       f"Balance: ${self.risk.balance:.2f}")

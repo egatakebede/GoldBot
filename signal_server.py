@@ -159,6 +159,14 @@ while True:
         if current_bar == last_bar:
             time.sleep(10)
             continue
+
+        # Stale data check — warn if last bar is older than 15 minutes
+        age_minutes = (datetime.now(timezone.utc) - current_bar).total_seconds() / 60
+        if age_minutes > 15:
+            print(f"[{utcnow().strftime('%H:%M:%S')}] WARNING: Data is {age_minutes:.0f}min stale — is MT5 running?")
+            time.sleep(30)
+            continue
+
         last_bar = current_bar
         bars_processed += 1
 

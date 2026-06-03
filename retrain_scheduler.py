@@ -39,6 +39,13 @@ FEATURE_COLS = [
     "news_blackout","tradeable",
     "hour","day_of_week","is_monday","is_friday",
     "regime_trending","regime_ranging","regime_highvol","regime_lowvol","adx_val",
+    # SMC
+    "bos_bull","bos_bear","choch_bull","choch_bear",
+    "fvg_bull","fvg_bear","dist_fvg_bull","dist_fvg_bear",
+    "ob_bull","ob_bear","ob_bull_dist","ob_bear_dist",
+    "liq_bull","liq_bear",
+    "swing_high","swing_low","dist_swing_high","dist_swing_low",
+    "smc_bias",
     "h1_trend_8_21","h1_trend_21_50","h1_trend_50_200","h1_ema21_slope",
     "h1_rsi14","h1_rsi_slope","h1_macd_hist","h1_macd_hist_slope",
     "h1_bb_position","h1_bb_squeeze","h1_atr14","h1_atr_trend",
@@ -78,23 +85,37 @@ def load_all_data():
     print(f"[Retrain] Total rows: {len(combined)}")
     return combined
 
-def make_labels(df, forward_bars=5, rr_ratio=1.5, min_atr_move=0.8):
-    atr_val = df["atr14"]
-    close, high, low = df["close"], df["high"], df["low"]
-    labels = pd.Series(1, index=df.index)
-    for i in range(len(df) - forward_bars):
-        if atr_val.iloc[i] < atr_val.iloc[max(0,i-20):i].mean() * min_atr_move:
+def make_labels(df, forward_bars=20, tp_mult=2.0, sl_mult=1.5):
+    """Matches train.py label logic exactly — sequential SL/TP check, first touch wins."""
+    atr   = df["atr14"].values
+    close = df["close"].values
+    high  = df["high"].values
+    low   = df["low"].values
+    n     = len(df)
+    labels = np.ones(n, dtype=int)
+    for i in range(n - forward_bars):
+        if np.isnan(atr[i]) or atr[i] <= 0:
             continue
-        entry   = close.iloc[i]
-        sl_dist = atr_val.iloc[i] * 1.0
-        tp_dist = atr_val.iloc[i] * rr_ratio
-        fh = high.iloc[i+1:i+1+forward_bars]
-        fl = low.iloc[i+1:i+1+forward_bars]
-        if (fh >= entry + tp_dist).any() and not (fl <= entry - sl_dist).any():
-            labels.iloc[i] = 2
-        elif (fl <= entry - tp_dist).any() and not (fh >= entry + sl_dist).any():
-            labels.iloc[i] = 0
-    return labels
+        entry    = close[i]
+        tp_long  = entry + atr[i] * tp_mult
+        sl_long  = entry - atr[i] * sl_mult
+        tp_short = entry - atr[i] * tp_mult
+        sl_short = entry + atr[i] * sl_mult
+        long_result = short_result = 0
+        for j in range(i + 1, i + 1 + forward_bars):
+            if long_result == 0:
+                if low[j] <= sl_long:   long_result = -1
+                elif high[j] >= tp_long: long_result = 1
+            if short_result == 0:
+                if high[j] >= sl_short:  short_result = -1
+                elif low[j] <= tp_short: short_result = 1
+            if long_result != 0 and short_result != 0:
+                break
+        if long_result == 1 and short_result != 1:
+            labels[i] = 2
+        elif short_result == 1 and long_result != 1:
+            labels[i] = 0
+    return pd.Series(labels, index=df.index)
 
 
 def retrain():
@@ -168,7 +189,7 @@ def retrain():
         with open(FEATURES_PATH, "w") as f:
             f.write("\n".join(available))
         with open("models/best_params.json", "w") as f:
-            json.dump({"params": params, "accuracy": mean_acc,
+            json.dump({"params": params, "accuracy": mean_acc, "conf_threshold": config.MIN_CONFIDENCE,
                        "win_rate": mean_wr, "features": len(available)}, f, indent=2)
 
         print(f"[Retrain] Saved to {MODEL_PATH}")
