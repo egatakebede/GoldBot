@@ -8,6 +8,7 @@ from indicators import (ema, rsi, atr, macd, bollinger_bands,
 
 def build_features(df, blackout_events=None):
     d = df.copy()
+    cols = {}  # build all new columns here, assign once at end
     c = d["close"]
     h = d["high"]
     l = d["low"]
@@ -35,7 +36,8 @@ def build_features(df, blackout_events=None):
     # RSI momentum — rate of change of RSI
     d["rsi_slope"] = d["rsi14"].diff(3)
 
-    d["macd_line"], d["macd_signal"], d["macd_hist"] = macd(c)
+    _macd = macd(c)
+    d["macd_line"], d["macd_signal"], d["macd_hist"] = _macd.line, _macd.signal, _macd.hist
     d["macd_cross"] = (d["macd_line"] > d["macd_signal"]).astype(int)
     d["macd_hist_slope"] = d["macd_hist"].diff(2)
 
@@ -43,7 +45,8 @@ def build_features(df, blackout_events=None):
     d["roc10"] = roc(c, 10)
     d["roc20"] = roc(c, 20)
 
-    d["stoch_k"], d["stoch_d"] = stochastic(h, l, c)
+    _stoch = stochastic(h, l, c)
+    d["stoch_k"], d["stoch_d"] = _stoch.k, _stoch.d
     d["stoch_cross"] = (d["stoch_k"] > d["stoch_d"]).astype(int)
 
     d["atr14"]     = atr(h, l, c, 14)
@@ -53,7 +56,8 @@ def build_features(df, blackout_events=None):
     # ATR trend — is volatility expanding or contracting?
     d["atr_trend"] = d["atr14"].diff(5) / d["atr14"]
 
-    d["bb_upper"], d["bb_mid"], d["bb_lower"] = bollinger_bands(c)
+    _bb = bollinger_bands(c)
+    d["bb_upper"], d["bb_mid"], d["bb_lower"] = _bb.upper, _bb.mid, _bb.lower
     d["bb_width"]    = (d["bb_upper"] - d["bb_lower"]) / d["bb_mid"] * 100
     d["bb_position"] = (c - d["bb_lower"]) / (d["bb_upper"] - d["bb_lower"])
     d["bb_squeeze"]  = (d["bb_width"] < d["bb_width"].rolling(20).mean()).astype(int)
@@ -109,7 +113,8 @@ def build_features(df, blackout_events=None):
     d["atr_above_avg"] = (d["atr14"] > d["atr14"].rolling(20).mean()).astype(int)
 
     # Regime as numeric features — model learns which regime favours which signal
-    d["regime"], d["adx"], _ = detect_regime(d)
+    _regime = detect_regime(d)
+    d["regime"], d["adx"] = _regime.regime, _regime.adx
     d["regime_trending"] = (d["regime"] == "TRENDING").astype(int)
     d["regime_ranging"]  = (d["regime"] == "RANGING").astype(int)
     d["regime_highvol"]  = (d["regime"] == "HIGH_VOL").astype(int)
@@ -117,26 +122,30 @@ def build_features(df, blackout_events=None):
     d["adx_val"]         = d["adx"]  # numeric ADX value
 
     # ── SMC Features ─────────────────────────────────────────────────────
-    d["bos_bull"], d["bos_bear"], d["choch_bull"], d["choch_bear"] = bos_choch(c, h, l)
+    _bos = bos_choch(c, h, l)
+    d["bos_bull"], d["bos_bear"], d["choch_bull"], d["choch_bear"] = _bos.bos_bull, _bos.bos_bear, _bos.choch_bull, _bos.choch_bear
 
-    d["fvg_bull"], d["fvg_bear"], d["dist_fvg_bull"], d["dist_fvg_bear"] = fair_value_gaps(h, l, c)
+    _fvg = fair_value_gaps(h, l, c)
+    d["fvg_bull"], d["fvg_bear"], d["dist_fvg_bull"], d["dist_fvg_bear"] = _fvg.fvg_bull, _fvg.fvg_bear, _fvg.dist_bull, _fvg.dist_bear
 
     atr14_series = d["atr14"]
-    d["ob_bull"], d["ob_bear"], d["ob_bull_dist"], d["ob_bear_dist"] = order_blocks(h, l, c, d["open"], atr14_series)
+    _ob = order_blocks(h, l, c, d["open"], atr14_series)
+    d["ob_bull"], d["ob_bear"], d["ob_bull_dist"], d["ob_bear_dist"] = _ob.in_bull, _ob.in_bear, _ob.bull_dist, _ob.bear_dist
 
     d["liq_bull"], d["liq_bear"] = liquidity_sweep(h, l, c)
 
     # Swing structure
-    d["swing_high"], d["swing_low"] = swing_points(h, l)
+    _sp = swing_points(h, l)
+    d["swing_high"], d["swing_low"] = _sp
     # Distance to nearest swing high/low in ATR units
     last_sh = h.where(d["swing_high"] == 1).ffill()
     last_sl = l.where(d["swing_low"]  == 1).ffill()
     d["dist_swing_high"] = (last_sh - c) / atr14_series
     d["dist_swing_low"]  = (c - last_sl)  / atr14_series
-    # Combined SMC bias score: +1 per bull signal, -1 per bear signal
     d["smc_bias"] = (d["bos_bull"] + d["choch_bull"] + d["fvg_bull"] + d["ob_bull"] + d["liq_bull"]
                    - d["bos_bear"] - d["choch_bear"] - d["fvg_bear"] - d["ob_bear"] - d["liq_bear"])
 
+    d = d.copy()  # defragment after many column assignments
     return d.dropna()
 
 

@@ -1,6 +1,7 @@
 import json
 import os
-from datetime import datetime, date
+import logging
+from datetime import datetime, date, timezone
 import config
 
 class RiskEngine:
@@ -13,7 +14,7 @@ class RiskEngine:
         self.total_trades       = 0
         self.winning_trades     = 0
         self.is_active          = True
-        self.last_day           = date.today()
+        self.last_day           = datetime.now(timezone.utc).date()
         self.pause_reason       = None
         self._state_file        = "data/risk_state.json"
         self._recent_pnl        = []
@@ -21,7 +22,7 @@ class RiskEngine:
         self._load_state()
 
     def check_daily_reset(self):
-        today = date.today()
+        today = datetime.now(timezone.utc).date()
         if today != self.last_day:
             self.daily_pnl          = 0.0
             self.daily_trades       = 0

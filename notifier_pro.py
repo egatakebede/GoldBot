@@ -11,7 +11,8 @@ def send_msg(cid, text, kbd=None):
         p["reply_markup"] = kbd
     try:
         return requests.post(f"{BASE_URL}/sendMessage", json=p, timeout=5).status_code == 200
-    except:
+    except Exception as e:
+        print(f"[notifier_pro] sendMessage failed: {e}")
         return False
 
 def broadcast(text, kbd=None):
@@ -25,14 +26,14 @@ def edit_msg(cid, mid, text, kbd=None):
         p["reply_markup"] = kbd
     try:
         requests.post(f"{BASE_URL}/editMessageText", json=p, timeout=5)
-    except:
-        pass
+    except Exception as e:
+        print(f"[notifier_pro] editMessageText failed: {e}")
 
 def answer_cb(qid, text=""):
     try:
         requests.post(f"{BASE_URL}/answerCallbackQuery", json={"callback_query_id": qid, "text": text, "show_alert": False})
-    except:
-        pass
+    except Exception as e:
+        print(f"[notifier_pro] answerCallbackQuery failed: {e}")
 
 def kbd():
     return json.dumps({"inline_keyboard": [
@@ -269,7 +270,8 @@ def get_updates():
     try:
         r = requests.get(f"{BASE_URL}/getUpdates", params={"offset": _state["last_update_id"] + 1, "timeout": 5}, timeout=10)
         return r.json().get("result", []) if r.status_code == 200 else []
-    except:
+    except Exception as e:
+        print(f"[notifier_pro] getUpdates failed: {e}")
         return []
 
 def start():
@@ -316,7 +318,7 @@ def start():
             
             time.sleep(1)
         except Exception as e:
-            print(f"[Error] {e}")
+            print(f"[notifier_pro] Poll error: {e}")
             time.sleep(5)
 
 if __name__ == "__main__":

@@ -114,9 +114,12 @@ HTML = """
 
 def load_stats():
     path = "data/risk_state.json"
-    if os.path.exists(path):
-        with open(path) as f:
-            return json.load(f)
+    try:
+        if os.path.exists(path):
+            with open(path) as f:
+                return json.load(f)
+    except Exception as e:
+        print(f"[Dashboard] Could not load stats: {e}")
     return {"balance": 10000, "daily_pnl": 0, "win_rate": 0,
             "drawdown": 0, "total_trades": 0, "is_active": True,
             "consec_loss": 0}
@@ -125,9 +128,17 @@ def load_trades(n=30):
     path = config.TRADE_LOG_PATH
     if not os.path.exists(path):
         return []
-    with open(path) as f:
-        rows = list(csv.DictReader(f))
-    return rows[-n:][::-1]
+    try:
+        with open(path) as f:
+            rows = list(csv.DictReader(f))
+    except Exception as e:
+        print(f"[Dashboard] Could not load trades: {e}")
+        return []
+    # Sanitise all string values to prevent XSS via crafted CSV entries
+    safe = []
+    for row in rows[-n:]:
+        safe.append({k: str(v).replace("<", "&lt;").replace(">", "&gt;") for k, v in row.items()})
+    return safe[::-1]
 
 @app.route("/")
 def index():

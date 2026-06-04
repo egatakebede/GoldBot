@@ -47,4 +47,24 @@ def get_stats():
         by_direction[d]["wins"] += t["win"]
         by_direction[d]["total"] += 1
         by_direction[d]["pnl"] += t["pnl"]
-    return {"total": total, "wins": wins, "losses": losses, "win_rate": win_rate, "total_pnl": total_pnl, "avg_win": avg_win, "avg_loss": avg_loss, "max_win": max_win, "max_loss": max_loss, "by_regime": by_regime, "by_direction": by_direction}
+    return {"total": total, "wins": wins, "losses": losses, "win_rate": win_rate, "total_pnl": total_pnl, "avg_win": avg_win, "avg_loss": avg_loss, "max_win": max_win, "max_loss": max_loss, "by_regime": by_regime, "by_direction": by_direction, "streak_win": get_streaks(trades)[0], "streak_loss": get_streaks(trades)[1]}
+
+
+def get_streaks(trades):
+    """Calculate current win and loss streaks."""
+    if not trades:
+        return 0, 0
+    win_streak = loss_streak = 0
+    # Current win streak
+    for t in reversed(trades):
+        if t["win"]:
+            win_streak += 1
+        else:
+            break
+    # Current loss streak
+    for t in reversed(trades):
+        if not t["win"]:
+            loss_streak += 1
+        else:
+            break
+    return win_streak, loss_streak

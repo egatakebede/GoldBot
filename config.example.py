@@ -14,7 +14,7 @@ TF_ENTRY  = "M1"
 
 # Telegram
 TELEGRAM_TOKEN   = "your_bot_token_here"
-TELEGRAM_CHAT_ID = "your_chat_id_here"
+TELEGRAM_CHAT_ID = ["your_chat_id_here"]  # must be a list
 
 # Risk Management
 RISK_PCT         = 0.005
@@ -38,6 +38,7 @@ NEWS_BLACKOUT_MINUTES = 30
 
 # Model versioning
 MODEL_PATH     = "models/xgb_model.json"
+MODEL_PATH_UBJ = "models/xgb_model.ubj"
 MODEL_VERSIONS = 5
 RETRAIN_DAY    = "sunday"
 RETRAIN_HOUR   = 2
@@ -47,6 +48,9 @@ TRADE_LOG_PATH = "data/trade_log.csv"
 
 # Spread simulation
 SPREAD = 0.30
+
+# Max simultaneous open positions
+MAX_POSITIONS = 3
 
 # Walk-forward health check
 WIN_RATE_MIN = 0.60

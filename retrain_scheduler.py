@@ -1,4 +1,4 @@
-import os, time, json, schedule
+import os, time, json, schedule, logging
 import numpy as np
 import pandas as pd
 import joblib
@@ -14,11 +14,12 @@ from features import build_features, add_htf_context, load_htf_csv
 
 def utcnow(): return datetime.now(timezone.utc)
 
-MODEL_PATH    = config.MODEL_PATH
-CALIB_PATH    = "models/calibrated_model.pkl"
-FEATURES_PATH = "models/feature_cols.txt"
-DATA_DIR      = "data"
-WIN_RATE_MIN  = 0.60   # trigger emergency retrain if win rate drops below this
+MODEL_PATH     = config.MODEL_PATH
+MODEL_PATH_UBJ = getattr(config, "MODEL_PATH_UBJ", "models/xgb_model.ubj")
+CALIB_PATH     = "models/calibrated_model.pkl"
+FEATURES_PATH  = "models/feature_cols.txt"
+DATA_DIR       = "data"
+WIN_RATE_MIN   = 0.60   # trigger emergency retrain if win rate drops below this
 
 FEATURE_COLS = [
     "trend_8_21","trend_21_50","trend_50_200",
@@ -221,18 +222,22 @@ def check_model_health():
             notifier.send(f"⚠️ Win rate dropped to {win_rate:.1%} — emergency retrain triggered")
             retrain()
     except Exception as e:
-        print(f"[HealthCheck] Error: {e}")
+        logging.exception("[HealthCheck] Error: %s", e)
 
 
 def load_model():
-    if not os.path.exists(MODEL_PATH):
-        print("[Retrain] No model — running initial train...")
-        retrain()
+    if not os.path.exists(MODEL_PATH) and not os.path.exists(MODEL_PATH_UBJ) and not os.path.exists(CALIB_PATH):
+        print("[Retrain] No model found — running initial train...")
+        model_obj, acc, wr = retrain()
+        if model_obj is None:
+            raise RuntimeError("[Retrain] Initial training failed — cannot load model.")
     if os.path.exists(CALIB_PATH):
         model = joblib.load(CALIB_PATH)
     else:
         model = XGBClassifier()
-        model.load_model(MODEL_PATH)
+        model_file = MODEL_PATH if os.path.exists(MODEL_PATH) else MODEL_PATH_UBJ
+        model.load_model(model_file)
+        print(f"[Retrain] Loaded raw model from {model_file}")
     if os.path.exists(FEATURES_PATH):
         with open(FEATURES_PATH) as f:
             cols = [l.strip() for l in f if l.strip()]

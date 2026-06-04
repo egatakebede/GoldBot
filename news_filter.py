@@ -17,7 +17,7 @@ _CACHE_TTL_MIN = 60
 def fetch_events():
     global _cache_events, _cache_updated
     now = datetime.now(timezone.utc)
-    if _cache_updated and (now - _cache_updated).seconds < _CACHE_TTL_MIN * 60:
+    if _cache_updated and (now - _cache_updated).total_seconds() < _CACHE_TTL_MIN * 60:
         return _cache_events
     try:
         url = "https://nfs.faireconomy.media/ff_calendar_thisweek.json"

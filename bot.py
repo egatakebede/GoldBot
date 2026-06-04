@@ -109,8 +109,9 @@ class GoldBot:
         return m1, m5, htf_paths
 
     def get_current_price(self):
-        df = pd.read_csv("data/XAUUSD1.csv")
-        return float(df['close'].iloc[-1])
+        df = pd.read_csv("data/XAUUSD1.csv", sep="\t", header=None,
+                         names=["time","open","high","low","close","volume"])
+        return float(df["close"].iloc[-1])
 
     def _open_trade(self, signal, confidence, regime, atr14, price):
         direction   = "BUY" if signal == 2 else "SELL"
@@ -164,11 +165,7 @@ class GoldBot:
                 round(pos.confidence, 3), pos.regime
             ])
 
-    def tick(self):
-        now   = datetime.now(timezone.utc)
-        price = self.get_current_price()
-
-        # Manage all open positions
+    def _manage_positions(self, price):
         for pos in list(self.positions):
             if self._last_atr > 0:
                 pos.update_trail(price, self._last_atr)
@@ -181,6 +178,7 @@ class GoldBot:
             if should_exit:
                 self._close_trade(pos, reason, price, pnl)
 
+    def _evaluate_entry(self, now):
         can_trade, reason = self.risk.can_trade()
         if not can_trade:
             print(f"[Bot] Paused: {reason}")
@@ -198,7 +196,6 @@ class GoldBot:
                 notifier.news_blackout(nxt['title'], mins)
                 return
 
-        # Check max simultaneous positions + correlation
         max_pos = getattr(config, 'MAX_POSITIONS', 3)
         if len(self.positions) >= max_pos:
             return
@@ -220,9 +217,8 @@ class GoldBot:
         if confidence < self._dyn_conf:
             return
 
-        # Correlation check — max 2 positions same direction
-        direction  = "BUY" if signal == 2 else "SELL"
-        same_dir   = sum(1 for p in self.positions if p.direction == direction)
+        direction = "BUY" if signal == 2 else "SELL"
+        same_dir  = sum(1 for p in self.positions if p.direction == direction)
         if same_dir >= 2:
             print(f"[Bot] Skipping {direction} — already {same_dir} open same direction")
             return
@@ -230,8 +226,13 @@ class GoldBot:
         print(f"[Bot] {now.strftime('%H:%M')} | "
               f"Signal:{direction} | Conf:{confidence:.2f} | "
               f"Regime:{regime} | Positions:{len(self.positions)}/{max_pos}")
+        self._open_trade(signal, confidence, regime, atr14, self.get_current_price())
 
-        self._open_trade(signal, confidence, regime, atr14, price)
+    def tick(self):
+        now   = datetime.now(timezone.utc)
+        price = self.get_current_price()
+        self._manage_positions(price)
+        self._evaluate_entry(now)
 
     def run(self):
         self.running = True

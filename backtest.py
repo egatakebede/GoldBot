@@ -6,7 +6,7 @@ GoldBot Pro — Backtester v3
 - Correlation check: no 2nd position same direction
 - Proper HTF context (ffill only from past)
 """
-import os, json
+import os, json, logging
 import numpy as np
 import pandas as pd
 import joblib
@@ -17,6 +17,7 @@ from features import build_features, add_htf_context, load_htf_csv
 
 DATA_DIR      = "data"
 MODEL_PATH    = "models/xgb_model.json"
+MODEL_PATH_UBJ = "models/xgb_model.ubj"
 CALIB_PATH    = "models/calibrated_model.pkl"
 FEATURES_PATH = "models/feature_cols.txt"
 PARAMS_PATH   = "models/best_params.json"
@@ -24,10 +25,10 @@ RESULTS_PATH  = "logs/backtest_results.csv"
 
 INITIAL_BALANCE = 10_000.0
 RISK_PCT        = 0.005
-SL_MULT         = 0.8
-TP_MULT         = 1.6
+SL_MULT         = 0.3
+TP_MULT         = 0.3
 MAX_LOTS        = 2.0
-MAX_BARS_OPEN   = 20
+MAX_BARS_OPEN   = 3
 MAX_POSITIONS   = 3
 PARTIAL_AT_1R   = True
 
@@ -36,15 +37,16 @@ BASE_SPREAD     = 0.30   # normal spread
 NEWS_SPREAD     = 2.50   # spread during high-impact news
 MARKET_IMPACT   = 0.05   # per 0.1 lot above 0.1 (size impact)
 
-MIN_CONF = 0.62
+MIN_CONF = 0.78
 if os.path.exists(PARAMS_PATH):
     try:
         with open(PARAMS_PATH) as f:
             saved = json.load(f)
-        MIN_CONF = saved.get("conf_threshold", MIN_CONF)
-        print(f"Conf threshold from training: {MIN_CONF:.3f}")
-    except Exception:
-        pass
+        loaded = saved.get("conf_threshold", MIN_CONF)
+        MIN_CONF = max(MIN_CONF, loaded)  # never go below our floor
+        print(f"Conf threshold from training: {loaded:.3f} | using: {MIN_CONF:.3f}")
+    except Exception as e:
+        logging.warning("Could not load best_params.json: %s", e)
 
 
 def load_model():
@@ -53,8 +55,9 @@ def load_model():
         print("Using calibrated model")
     else:
         model = xgb.XGBClassifier()
-        model.load_model(MODEL_PATH)
-        print("Using raw XGBoost model")
+        path = MODEL_PATH if os.path.exists(MODEL_PATH) else MODEL_PATH_UBJ
+        model.load_model(path)
+        print(f"Using raw XGBoost model ({path})")
     with open(FEATURES_PATH) as f:
         features = [l.strip() for l in f if l.strip()]
     return model, features
@@ -234,7 +237,8 @@ def run_backtest(df, model, features):
 
         try:
             signal, conf, cb, cf, cs = get_signal(model, row, available, classes)
-        except Exception:
+        except Exception as e:
+            logging.warning("[Backtest] get_signal failed at bar %d: %s", i, e)
             i += 1; continue
 
         signal, conf = apply_htf_filter(signal, conf, row)
@@ -378,7 +382,7 @@ def print_report(trades, daily_pnl, final_balance, peak_balance):
 if __name__ == "__main__":
     print("\n=== GoldBot Pro — Backtester v3 (Walk-Forward + Slippage) ===")
 
-    if not os.path.exists(CALIB_PATH) and not os.path.exists(MODEL_PATH):
+    if not os.path.exists(CALIB_PATH) and not os.path.exists(MODEL_PATH) and not os.path.exists(MODEL_PATH_UBJ):
         print("ERROR: No model found. Run train.py first.")
         exit(1)
 
